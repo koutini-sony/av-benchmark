@@ -153,7 +153,8 @@ class VideoDataset(Dataset):
                 raise RuntimeError(
                     f'Video too short {video_path}, expected at least {expected_length} frames at {frame_rate} fps'
                 )
-            return torch.stack(frames[:expected_length])
+            # Match torio output layout: (T, C, H, W).
+            return torch.stack(frames[:expected_length]).permute(0, 3, 1, 2)
         finally:
             container.close()
 
@@ -171,6 +172,10 @@ class VideoDataset(Dataset):
             raise RuntimeError(
                 f'IB video too short {video_path}, expected {self.ib_expected_length}, got {ib_chunk.shape[0]}'
             )
+        if ib_chunk.ndim != 4 or ib_chunk.shape[1] != 3:
+            raise RuntimeError(
+                f'IB video has unexpected shape {tuple(ib_chunk.shape)}; expected (T,C,H,W)'
+            )
 
         if sync_chunk is None:
             raise RuntimeError(f'Sync video returned None {video_path}')
@@ -178,7 +183,11 @@ class VideoDataset(Dataset):
             raise RuntimeError(
                 f'Sync video too short {video_path}, expected {self.sync_expected_length}, got {sync_chunk.shape[0]}'
             )
-
+        if sync_chunk.ndim != 4 or sync_chunk.shape[1] != 3:
+            raise RuntimeError(
+                f'Sync video has unexpected shape {tuple(sync_chunk.shape)}; expected (T,C,H,W)'
+            )
+        
         # truncate the video
         ib_chunk = ib_chunk[:self.ib_expected_length]
         if ib_chunk.shape[0] != self.ib_expected_length:
