@@ -11,28 +11,32 @@ from av_bench.data.video_dataset import (
     VideoDataset,
 )
 
-
-def _to_tchw(video: torch.Tensor) -> torch.Tensor:
-    if video.ndim != 4:
-        raise ValueError(f'Expected 4D video tensor, got shape={tuple(video.shape)}')
-    if video.shape[1] == 3:
-        return video
-    if video.shape[0] == 3:
-        return video.permute(1, 0, 2, 3)
-    if video.shape[-1] == 3:
-        return video.permute(0, 3, 1, 2)
-    raise ValueError(f'Could not infer channel dimension for tensor shape={tuple(video.shape)}')
-
-
 def _save_video_frames(video: torch.Tensor, out_dir: Path, prefix: str):
     out_dir.mkdir(parents=True, exist_ok=True)
-    video_tchw = _to_tchw(video).detach().cpu()
-    for i in range(video_tchw.shape[0]):
-        frame = video_tchw[i].to(torch.float32)
+    if video.ndim != 4:
+        raise ValueError(f'Expected 4D video tensor, got shape={tuple(video.shape)}')
+    video = video.detach().cpu()
+    for i in range(video.shape[0]):
+        frame = video[i].to(torch.float32)
         if frame.max() > 1.0 or frame.min() < 0.0:
             frame = frame / 255.0
         frame = frame.clamp(0.0, 1.0)
         save_image(frame, out_dir / f'{prefix}_{i:04d}.png')
+
+
+def _report_pixel_diff(name: str, lhs: torch.Tensor, rhs: torch.Tensor):
+    if lhs.shape != rhs.shape:
+        print(f'{name}.shape_mismatch: lhs={tuple(lhs.shape)} rhs={tuple(rhs.shape)}')
+        return
+    lhs_i = lhs.to(torch.int16)
+    rhs_i = rhs.to(torch.int16)
+    diff = (lhs_i - rhs_i).abs()
+    max_abs_diff = diff.max().item()
+    mean_abs_diff = diff.to(torch.float32).mean().item()
+    exact_ratio = (diff == 0).to(torch.float32).mean().item()
+    print(f'{name}.pixel_diff.max_abs={max_abs_diff}')
+    print(f'{name}.pixel_diff.mean_abs={mean_abs_diff:.6f}')
+    print(f'{name}.pixel_diff.exact_ratio={exact_ratio:.6f}')
 
 
 def main():
@@ -50,6 +54,10 @@ def main():
     run_out_dir = args.out_dir / args.video_path.stem
     print(f'video={args.video_path}')
     print(f'duration_sec={args.duration_sec}')
+    torio_ib = None
+    torio_sync = None
+    pyav_ib = None
+    pyav_sync = None
 
     if args.backend in ('torio', 'both'):
         if StreamingMediaDecoder is None:
@@ -76,6 +84,10 @@ def main():
         print(f'pyav_sync.shape={tuple(pyav_sync.shape)}')
         print(f'pyav_ib.saved_dir={pyav_ib_dir}')
         print(f'pyav_sync.saved_dir={pyav_sync_dir}')
+
+    if args.backend == 'both' and torio_ib is not None and pyav_ib is not None:
+        _report_pixel_diff('ib', torio_ib, pyav_ib)
+        _report_pixel_diff('sync', torio_sync, pyav_sync)
 
 
 if __name__ == '__main__':
