@@ -14,7 +14,7 @@ from av_bench.args import get_eval_parser
 from av_bench.data.video_dataset import VideoDataset, error_avoidance_collate
 from av_bench.synchformer.synchformer import Synchformer
 
-_syncformer_ckpt_path = Path(__file__).parent.parent / 'weights' / 'synchformer_state_dict.pth'
+_syncformer_ckpt_path = Path(__file__).parent / 'weights' / 'synchformer_state_dict.pth'
 log = logging.getLogger()
 device = 'cuda'
 
