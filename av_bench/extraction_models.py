@@ -8,17 +8,22 @@ from hear21passt.base import get_basic_model
 from imagebind.models import imagebind_model
 from msclap import CLAP
 
+from av_bench.openl3.openl3 import OpenL3Frontend
 from av_bench.panns import Cnn14
 from av_bench.synchformer.synchformer import Synchformer
 from av_bench.vggish.vggish import VGGish
 
-_clap_ckpt_path = Path(
-    __file__).parent.parent / 'weights' / 'music_speech_audioset_epoch_15_esc_89.98.pt'
-_syncformer_ckpt_path = Path(__file__).parent.parent / 'weights' / 'synchformer_state_dict.pth'
+_clap_ckpt_path = (
+    Path(__file__).parent.parent
+    / "weights"
+    / "music_speech_audioset_epoch_15_esc_89.98.pt"
+)
+_syncformer_ckpt_path = (
+    Path(__file__).parent.parent / "weights" / "synchformer_state_dict.pth"
+)
 
 
 class ExtractionModels(nn.Module):
-
     def __init__(self):
         super().__init__()
 
@@ -44,10 +49,12 @@ class ExtractionModels(nn.Module):
 
         self.imagebind = imagebind_model.imagebind_huge(pretrained=True).eval()
 
-        self.laion_clap = laion_clap.CLAP_Module(enable_fusion=False, amodel='HTSAT-base').eval()
+        self.laion_clap = laion_clap.CLAP_Module(
+            enable_fusion=False, amodel="HTSAT-base"
+        ).eval()
         self.laion_clap.load_ckpt(_clap_ckpt_path, verbose=False)
 
-        self.ms_clap = CLAP(version='2023', use_cuda=True)
+        self.ms_clap = CLAP(version="2023", use_cuda=True)
 
         self.synchformer = Synchformer().eval()
         sd = torch.load(_syncformer_ckpt_path, weights_only=True)
@@ -60,4 +67,8 @@ class ExtractionModels(nn.Module):
             hop_length=160,
             n_fft=1024,
             n_mels=128,
+        )
+
+        self.openl3 = OpenL3Frontend(
+            sample_rate=48000,
         )

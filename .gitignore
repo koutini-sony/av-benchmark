@@ -4,6 +4,11 @@ saves
 saves/
 weights/
 weights
+weights
+gt_cache/
+pred_cache*
+ogamedata_pred_cache*
+foleybench_pred_cache*
 output/
 output
 pretrained/

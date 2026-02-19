@@ -14,9 +14,9 @@ from av_bench.args import get_eval_parser
 from av_bench.data.video_dataset import VideoDataset, error_avoidance_collate
 from av_bench.synchformer.synchformer import Synchformer
 
-_syncformer_ckpt_path = Path(__file__).parent / 'weights' / 'synchformer_state_dict.pth'
+_syncformer_ckpt_path = Path(__file__).parent / "weights" / "synchformer_state_dict.pth"
 log = logging.getLogger()
-device = 'cuda'
+device = "cuda"
 
 LOGFORMAT = "[%(log_color)s%(levelname)-8s%(reset)s]: %(log_color)s%(message)s%(reset)s"
 
@@ -47,25 +47,27 @@ def encode_video_with_sync(synchformer: Synchformer, x: torch.Tensor) -> torch.T
     num_segments = (t - segment_size) // step_size + 1
     segments = []
     for i in range(num_segments):
-        segments.append(x[:, i * step_size:i * step_size + segment_size])
+        segments.append(x[:, i * step_size : i * step_size + segment_size])
     x = torch.stack(segments, dim=1)  # (B, S, T, C, H, W)
 
-    x = rearrange(x, 'b s t c h w -> (b s) 1 t c h w')
+    x = rearrange(x, "b s t c h w -> (b s) 1 t c h w")
     x = synchformer.extract_vfeats(x)
-    x = rearrange(x, '(b s) 1 t d -> b s t d', b=b)
+    x = rearrange(x, "(b s) 1 t d -> b s t d", b=b)
     return x
 
 
-def encode_video_with_imagebind(imagebind: imagebind_model, x: torch.Tensor) -> torch.Tensor:
+def encode_video_with_imagebind(
+    imagebind: imagebind_model, x: torch.Tensor
+) -> torch.Tensor:
     # x: B * NUM_CROPS * T * C * H * W
     clips = []
     b, num_crops, t, c, h, w = x.shape
     for i in range(t - 1):
-        clips.append(x[:, :, i:i + 2])
+        clips.append(x[:, :, i : i + 2])
     clips = torch.cat(clips, dim=1)
 
     # clips: B * (NUM_CROPS * NUM_CLIPS) * 2 * C * H * W
-    clips = rearrange(clips, 'b n t c h w -> b n c t h w')
+    clips = rearrange(clips, "b n t c h w -> b n c t h w")
 
     emb = imagebind({ModalityType.VISION: clips})
     return emb[ModalityType.VISION]
@@ -82,21 +84,39 @@ def extract(args):
 
     if gt_cache is None:
         if gt_audio is None:
-            raise ValueError('Either gt_audio or gt_cache must be provided')
-        gt_cache = gt_audio / 'cache'
+            raise ValueError("Either gt_audio or gt_cache must be provided")
+        gt_cache = gt_audio / "cache"
 
-    log.info('Extracting features...')
+    log.info("Extracting features...")
+
+    audio_files = os.listdir(gt_audio)
+    log.info(f"{len(audio_files)} audio files found.")
+    audio_stems = {os.path.splitext(f)[0] for f in audio_files}
+    log.info(f"{len(audio_stems)} unique audio stems found.")
 
     # read all the file names
     video_names = os.listdir(video_path)
-    video_paths = [video_path / f for f in video_names if f.endswith('.mp4')]
-    log.info(f'{len(video_paths)} videos found.')
+    log.info(f"{len(video_names)} videos found in {video_path}.")
+    orig_videos = set(video_names)
+    video_names = [v for v in video_names if os.path.splitext(v)[0] in audio_stems]
+    log.info(f"{len(video_names)} videos filtered to match audio stems.")
+    missing_videos = orig_videos - set(video_names)
+    if len(missing_videos) > 0:
+        log.warning(
+            f"{len(missing_videos)} videos do not have matching audio and will be skipped."
+        )
+        if len(missing_videos) <= 100:
+            log.warning(f"Missing videos: {missing_videos}")
+    video_paths = [video_path / f for f in video_names if f.endswith(".mp4")]
+    log.info(f"{len(video_paths)} videos found.")
 
     dataset = VideoDataset(video_paths, duration_sec=audio_length)
-    loader = DataLoader(dataset,
-                        batch_size=batch_size,
-                        num_workers=num_workers,
-                        collate_fn=error_avoidance_collate)
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        collate_fn=error_avoidance_collate,
+    )
 
     sync_model = Synchformer().to(device).eval()
     sd = torch.load(_syncformer_ckpt_path, weights_only=True)
@@ -110,9 +130,11 @@ def extract(args):
     output_sync_features = {}
     output_ib_features = {}
     for data in tqdm(loader):
-        name = data['name']
-        ib_video = data['ib_video'].to(device)
-        sync_video = data['sync_video'].to(device)
+        if len(data) == 0:
+            continue
+        name = data["name"]
+        ib_video = data["ib_video"].to(device)
+        sync_video = data["sync_video"].to(device)
 
         sync_features = cmp_encode_video_with_sync(sync_model, sync_video)
         ib_features = cmp_encode_video_with_imagebind(imagebind, ib_video)
@@ -126,14 +148,16 @@ def extract(args):
             output_ib_features[n] = ib_features[i].clone()
 
     gt_cache.mkdir(parents=True, exist_ok=True)
-    torch.save(output_sync_features, gt_cache / 'synchformer_video.pth')
-    torch.save(output_ib_features, gt_cache / 'imagebind_video.pth')
+    torch.save(output_sync_features, gt_cache / "synchformer_video.pth")
+    torch.save(output_ib_features, gt_cache / "imagebind_video.pth")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     parser = get_eval_parser()
-    parser.add_argument('--video_path', type=Path, required=True, help='Path to the video files')
+    parser.add_argument(
+        "--video_path", type=Path, required=True, help="Path to the video files"
+    )
     args = parser.parse_args()
     extract(args)

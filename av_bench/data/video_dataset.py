@@ -42,11 +42,12 @@ _SYNC_FPS = 25.0
 
 def error_avoidance_collate(batch):
     batch = list(filter(lambda x: x is not None, batch))
+    if len(batch) == 0:
+        return {}
     return default_collate(batch)
 
 
 class VideoDataset(Dataset):
-
     def __init__(
         self,
         video_paths: list[Path],
@@ -60,21 +61,27 @@ class VideoDataset(Dataset):
         self.ib_expected_length = int(_IMAGEBIND_FPS * self.duration_sec)
         self.sync_expected_length = int(_SYNC_FPS * self.duration_sec)
 
-        self.ib_transform = v2.Compose([
-            v2.Resize(_IMAGEBIND_SIZE, interpolation=v2.InterpolationMode.BICUBIC),
-            v2.ToImage(),
-            v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
-                         std=[0.26862954, 0.26130258, 0.27577711]),
-        ])
+        self.ib_transform = v2.Compose(
+            [
+                v2.Resize(_IMAGEBIND_SIZE, interpolation=v2.InterpolationMode.BICUBIC),
+                v2.ToImage(),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize(
+                    mean=[0.48145466, 0.4578275, 0.40821073],
+                    std=[0.26862954, 0.26130258, 0.27577711],
+                ),
+            ]
+        )
 
-        self.sync_transform = v2.Compose([
-            v2.Resize(_SYNC_SIZE, interpolation=v2.InterpolationMode.BICUBIC),
-            v2.CenterCrop(_SYNC_SIZE),
-            v2.ToImage(),
-            v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-        ])
+        self.sync_transform = v2.Compose(
+            [
+                v2.Resize(_SYNC_SIZE, interpolation=v2.InterpolationMode.BICUBIC),
+                v2.CenterCrop(_SYNC_SIZE),
+                v2.ToImage(),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            ]
+        )
 
         self.crop = SpatialCrop(_IMAGEBIND_SIZE, 3)
 
@@ -83,12 +90,12 @@ class VideoDataset(Dataset):
         reader.add_basic_video_stream(
             frames_per_chunk=int(_IMAGEBIND_FPS * self.duration_sec),
             frame_rate=_IMAGEBIND_FPS,
-            format='rgb24',
+            format="rgb24",
         )
         reader.add_basic_video_stream(
             frames_per_chunk=int(_SYNC_FPS * self.duration_sec),
             frame_rate=_SYNC_FPS,
-            format='rgb24',
+            format="rgb24",
         )
 
         reader.fill_buffer()
@@ -167,10 +174,10 @@ class VideoDataset(Dataset):
             ib_chunk = self._sample_with_pyav(video_path, _IMAGEBIND_FPS, self.ib_expected_length)
             sync_chunk = self._sample_with_pyav(video_path, _SYNC_FPS, self.sync_expected_length)
         if ib_chunk is None:
-            raise RuntimeError(f'IB video returned None {video_path}')
+            raise RuntimeError(f"IB video returned None {video_path}")
         if ib_chunk.shape[0] < self.ib_expected_length:
             raise RuntimeError(
-                f'IB video too short {video_path}, expected {self.ib_expected_length}, got {ib_chunk.shape[0]}'
+                f"IB video too short {video_path}, expected {self.ib_expected_length}, got {ib_chunk.shape[0]}"
             )
         if ib_chunk.ndim != 4 or ib_chunk.shape[1] != 3:
             raise RuntimeError(
@@ -178,10 +185,10 @@ class VideoDataset(Dataset):
             )
 
         if sync_chunk is None:
-            raise RuntimeError(f'Sync video returned None {video_path}')
+            raise RuntimeError(f"Sync video returned None {video_path}")
         if sync_chunk.shape[0] < self.sync_expected_length:
             raise RuntimeError(
-                f'Sync video too short {video_path}, expected {self.sync_expected_length}, got {sync_chunk.shape[0]}'
+                f"Sync video too short {video_path}, expected {self.sync_expected_length}, got {sync_chunk.shape[0]}"
             )
         if sync_chunk.ndim != 4 or sync_chunk.shape[1] != 3:
             raise RuntimeError(
@@ -189,27 +196,31 @@ class VideoDataset(Dataset):
             )
         
         # truncate the video
-        ib_chunk = ib_chunk[:self.ib_expected_length]
+        ib_chunk = ib_chunk[: self.ib_expected_length]
         if ib_chunk.shape[0] != self.ib_expected_length:
-            raise RuntimeError(f'IB video wrong length {video_path}, '
-                               f'expected {self.ib_expected_length}, '
-                               f'got {ib_chunk.shape[0]}')
+            raise RuntimeError(
+                f"IB video wrong length {video_path}, "
+                f"expected {self.ib_expected_length}, "
+                f"got {ib_chunk.shape[0]}"
+            )
         ib_chunk = self.ib_transform(ib_chunk)
 
-        sync_chunk = sync_chunk[:self.sync_expected_length]
+        sync_chunk = sync_chunk[: self.sync_expected_length]
         if sync_chunk.shape[0] != self.sync_expected_length:
-            raise RuntimeError(f'Sync video wrong length {video_path}, '
-                               f'expected {self.sync_expected_length}, '
-                               f'got {sync_chunk.shape[0]}')
+            raise RuntimeError(
+                f"Sync video wrong length {video_path}, "
+                f"expected {self.sync_expected_length}, "
+                f"got {sync_chunk.shape[0]}"
+            )
         sync_chunk = self.sync_transform(sync_chunk)
 
         ib_chunk = self.crop([ib_chunk])
         ib_chunk = torch.stack(ib_chunk)
 
         data = {
-            'name': video_path.stem,
-            'ib_video': ib_chunk,
-            'sync_video': sync_chunk,
+            "name": video_path.stem,
+            "ib_video": ib_chunk,
+            "sync_video": sync_chunk,
         }
 
         return data
@@ -218,7 +229,7 @@ class VideoDataset(Dataset):
         try:
             return self.sample(idx)
         except Exception as e:
-            log.error(f'Error loading video {self.video_paths[idx]}: {e}')
+            log.error(f"Error loading video {self.video_paths[idx]}: {e}")
             return None
 
     def __len__(self):
